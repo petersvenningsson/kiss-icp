@@ -80,6 +80,30 @@ KissICP::Vector3dVectorTuple KissICP::RegisterFrame(const std::vector<Eigen::Vec
     return {frame, source};
 }
 
+KissICP::Vector3dVectorTuple KissICP::RegisterFrame(const std::vector<Eigen::Vector3d> &frame,
+                                                    const Sophus::SE3d &initial_guess) {
+    // Preprocess the input cloud
+    const auto &cropped_frame = Preprocess(frame, config_.max_range, config_.min_range);
+
+    // Voxelize
+    const auto &[source, frame_downsample] = Voxelize(cropped_frame);
+
+    // Get motion prediction and adaptive_threshold
+    const double sigma = GetAdaptiveThreshold();
+
+    // Run icp
+    const Sophus::SE3d new_pose = kiss_icp::RegisterFrame(source,         //
+                                                          local_map_,     //
+                                                          initial_guess,  //
+                                                          3.0 * sigma,    //
+                                                          sigma / 3.0);
+    const auto model_deviation = initial_guess.inverse() * new_pose;
+    adaptive_threshold_.UpdateModelDeviation(model_deviation);
+    local_map_.Update(frame_downsample, new_pose);
+    poses_.push_back(new_pose);
+    return {frame, source};
+}
+
 KissICP::Vector3dVectorTuple KissICP::Voxelize(const std::vector<Eigen::Vector3d> &frame) const {
     const auto voxel_size = config_.voxel_size;
     const auto frame_downsample = kiss_icp::VoxelDownsample(frame, voxel_size * 0.5);
